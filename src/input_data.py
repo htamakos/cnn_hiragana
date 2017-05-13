@@ -71,7 +71,7 @@ def read_record_ETL8G(f):
     # グレースケールの画像に変換
     iL = iF.convert('L')
     # 16階調のグレースケールを255階調のグレースケールへ変換する
-    image = Image.eval(iL, lambda x: 255 - x * 16)
+    image = Image.eval(iL, lambda x: int(255 * x /16))
     return r + (image, )
 
 def create_hiragana_image():
@@ -111,7 +111,7 @@ def _find_all_files(path):
     return files
 
 
-def create_npz():
+def create_npz(data_argumentation=True):
     """
     numpyの圧縮ファイル形式で保存する関数
     """
@@ -131,10 +131,36 @@ def create_npz():
                 print("Skip a corruputed file: ", file)
                 continue
             img = img.resize(IMAGE_PIXCELS)
-            invert_img = ImageOps.invert(img)
-            pixels = np.array(invert_img.getdata())
+
+            # 元の画像のピクセル・ラベル追加
+            pixels = np.array(img.getdata())
             images.append(pixels/255.0)
             labels.append(label)
+
+            if data_argumentation:
+                # 元の画像を+15度回転
+                rotate_img = img.rotate(15)
+                pixels = np.array(rotate_img.getdata())
+                images.append(pixels/255.0)
+                labels.append(label)
+
+                # 元の画像を-15度回転
+                m_rotate_img = img.rotate(-15)
+                pixels = np.array(m_rotate_img.getdata())
+                images.append(pixels/255.0)
+                labels.append(label)
+
+                # 文字色をはっきりと
+                img2 = img.point(lambda x: x * 5.0)
+                pixels = np.array(img2.getdata())
+                images.append(pixels/255.0)
+                labels.append(label)
+
+                # 文字色を薄くする
+                img3 = img.point(lambda x: x * 0.5)
+                pixels = np.array(img3.getdata())
+                images.append(pixels/255.0)
+                labels.append(label)
 
     np.savez(DATA_DIR + "/np_hiragana.npz", image=images, label=labels)
 
