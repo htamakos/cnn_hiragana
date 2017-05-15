@@ -10,14 +10,18 @@ DATA_DIR = '../data/ETL8G'
 HIRAGANA_DATA_DIR = DATA_DIR + '/hiragana_images/'
 LABELS = os.listdir(HIRAGANA_DATA_DIR)
 NPZ = '../data/ETL8G/np_hiragana.npz'
+LOG_DIR = 'logs3'
+
 MAX_STEP = 200000
 BATCH_NUM = 75
 LABEL_NUM = 75
-LEARNING_RATE = 1e-4
+LEARNING_RATE = 1e-3
 TRAIN_KEEP_PROB = 0.5
 TEST_KEEP_PROB = 1.0
 IMAGE_SIZE = 28
 DECAY_RATE = 0.96
+DECAY_STEPS = 1000
+TEST_SIZE = 0.2
 
 dataset = np.load(NPZ)
 images = dataset['image']
@@ -70,9 +74,10 @@ def conv2d(x, W):
 def max_pool2x2(x):
     return tf.nn.max_pool(x, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding='SAME')
 
+
 def train():
     train_images, test_images, train_labels, test_labels = \
-         train_test_split(images, labels, random_state=0, test_size=0.2)
+         train_test_split(images, labels, random_state=0, test_size=TEST_SIZE)
 
     etl8g = ETL8G(train_images, train_labels)
 
@@ -84,23 +89,30 @@ def train():
 
         with tf.name_scope('conv1'):
             W_conv1 = weight_variable([5, 5, 1, 32])
-            b_conv1 = bias_variable([32])
-            h_conv1 = tf.nn.relu(conv2d(x_image, W_conv1) + b_conv1)
-
-            h_pool1 = max_pool2x2(h_conv1)
+            #b_conv1 = bias_variable([32])
+            #h_conv1 = tf.nn.relu(conv2d(x_image, W_conv1) + b_conv1)
+            h_conv1 = conv2d(x_image, W_conv1)
+            bn1 = tf.layers.batch_normalization(h_conv1)
+            #h_pool1 = max_pool2x2(h_conv1)
+            h_pool1 = max_pool2x2(tf.nn.relu(bn1))
 
         with tf.name_scope('conv2'):
             W_conv2 = weight_variable([5, 5, 32, 64])
-            b_conv2 = bias_variable([64])
-            h_conv2 = tf.nn.relu(conv2d(h_pool1, W_conv2) + b_conv2)
+            #b_conv2 = bias_variable([64])
+            #h_conv2 = tf.nn.relu(conv2d(h_pool1, W_conv2) + b_conv2)
+            h_conv2 = conv2d(h_pool1, W_conv2)
+            bn2 = tf.layers.batch_normalization(h_conv2)
 
-            h_pool2 = max_pool2x2(h_conv2)
+            #h_pool2 = max_pool2x2(h_conv2)
+            h_pool2 = max_pool2x2(tf.nn.relu(bn2))
 
         with tf.name_scope('fc1'):
             W_fc1 = weight_variable([7 * 7 * 64, 1024])
-            b_fc1 = bias_variable([1024])
+            #b_fc1 = bias_variable([1024])
             h_pool2_flat = tf.reshape(h_pool2, [-1, 7 * 7 * 64])
-            h_fc1 = tf.nn.relu(tf.matmul(h_pool2_flat, W_fc1) + b_fc1)
+            bn3 = tf.layers.batch_normalization(tf.matmul(h_pool2_flat, W_fc1))
+            #h_fc1 = tf.nn.relu(tf.matmul(h_pool2_flat, W_fc1) + b_fc1)
+            h_fc1 = tf.nn.relu(bn3)
 
         with tf.name_scope('dropout'):
             keep_prob = tf.placeholder(tf.float32)
@@ -112,7 +124,9 @@ def train():
             y_conv = tf.nn.softmax(tf.matmul(h_fc1_drop, W_fc2) + b_fc2)
 
         global_step = tf.Variable(0, trainable=False)
-        learning_rate = tf.train.exponential_decay(LEARNING_RATE, global_step, MAX_STEP, DECAY_RATE, staircase=True)
+        learning_rate = tf.train.exponential_decay(LEARNING_RATE, global_step, DECAY_STEPS, DECAY_RATE, staircase=True)
+
+        tf.summary.scalar('learning_rate', learning_rate)
 
         #loss = -tf.reduce_sum(y_ * tf.log(y_conv))
         loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=y_conv, labels=y_))
@@ -128,7 +142,7 @@ def train():
         init = tf.global_variables_initializer()
 
         with tf.Session() as sess:
-            writer = tf.summary.FileWriter("logs", sess.graph)
+            writer = tf.summary.FileWriter(LOG_DIR, sess.graph)
             sess.run(init)
 
             accracies = []
