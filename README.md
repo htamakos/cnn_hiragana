@@ -14,7 +14,6 @@ $ pip install sklearn
 
 ```
 $ cd src
-$ python input_data.py --process create_hiragana_image
-$ python input_data.py --process create_npz
-$ python cnn.py
+$ python input_data.py
+$ sh build.sh
 ```
