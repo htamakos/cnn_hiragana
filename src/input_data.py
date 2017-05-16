@@ -7,8 +7,6 @@ from PIL import Image
 from PIL import ImageOps
 import numpy as np
 
-FLAGS = None
-
 # １つの画像データのサイズ（バイト）
 RECORD_SIZE = 8199
 # struct.unpackで指定するフォーマット文字列
@@ -41,13 +39,25 @@ DECODER_NAME = 'bit'
 BITS_NUM = 4
 # ETLの画像データが格納されているディレクトリ
 DATA_DIR = '../data/ETL8G'
+LABELS = ['0x2422', '0x2424', '0x2426', '0x2428', '0x242a', '0x242b',
+          '0x242c', '0x242d', '0x242e', '0x242f', '0x2430', '0x2431',
+          '0x2432', '0x2433', '0x2434', '0x2435', '0x2436', '0x2437',
+          '0x2438', '0x2439', '0x243a', '0x243b', '0x243c', '0x243d',
+          '0x243e', '0x243f', '0x2440', '0x2441', '0x2442', '0x2443',
+          '0x2444', '0x2445', '0x2446', '0x2447', '0x2448', '0x2449',
+          '0x244a', '0x244b', '0x244c', '0x244d', '0x244e', '0x244f',
+          '0x2450', '0x2451', '0x2452', '0x2453', '0x2454', '0x2455',
+          '0x2456', '0x2457', '0x2458', '0x2459', '0x245a', '0x245b',
+          '0x245c', '0x245d', '0x245e', '0x245f', '0x2460', '0x2461',
+          '0x2462', '0x2463', '0x2464', '0x2465', '0x2466', '0x2467',
+          '0x2468', '0x2469', '0x246a', '0x246b', '0x246c', '0x246d',
+          '0x246f', '0x2472', '0x2473']
 
 # 1ファイルに格納されているデータ数
 NUM_DATASET = 4780
 
 HIRAGANA_DATA_DIR = DATA_DIR + '/hiragana_images/'
 NPZ = '../data/ETL8G/np_hiragana.npz'
-LABELS = os.listdir(HIRAGANA_DATA_DIR)
 NUM_LABELS = len(LABELS)
 IMAGE_SIZE = 28
 IMAGE_PIXCELS = [IMAGE_SIZE, IMAGE_SIZE]
@@ -70,17 +80,12 @@ def read_record_ETL8G(f):
     iF = Image.frombytes(IMAGE_MODE, IMAGE_SIZES, r[IMAGE_INDEX], DECODER_NAME, BITS_NUM)
     # グレースケールの画像に変換
     iL = iF.convert('L')
-    # 16階調のグレースケールを255階調のグレースケールへ変換する
-    image = Image.eval(iL, lambda x: int(255 * x /16))
-    return r + (image, )
+    return r + (iL, )
 
-def create_hiragana_image():
-    """
-    Args:
-      None
-    Returns:
-      np.array
-    """
+def read_hiragana():
+    images = []
+    labels = []
+
     dirname = DATA_DIR + '/hiragana_images'
 
     for i in range(1, 32):
@@ -93,106 +98,12 @@ def create_hiragana_image():
 
                 # ひらがなのみ（0x24**）のみ処理をする
                 if '0x24' in hiragana_jiscode:
-                    image = r[-1]
-                    jiscode_dirname = dirname + '/' + hiragana_jiscode
+                    images.append(np.array(r[-1]))
+                    label = np.zeros([len(LABELS)], np.uint8)
+                    label_index = LABELS.index(hiragana_jiscode)
+                    label[label_index] = 1
+                    labels.append(label)
 
-                    if not hiragana_jiscode in os.listdir(dirname):
-                        os.mkdir(jiscode_dirname)
-                    image_filename = "{}/ETL8G_{:02d}_{}.png".format(jiscode_dirname, i, j)
-                    image.save(image_filename)
-                    print("create " + image_filename)
+    np.savez('hiragana.npz', image=images, label=labels)
 
-def _find_all_files(path):
-    dirnames = os.listdir(path)
-    files = []
-    for dirname in dirnames:
-        filenames = os.listdir(path + "/" + dirname)
-        files += filenames
-    return files
-
-
-def create_npz(data_argumentation=True):
-    """
-    numpyの圧縮ファイル形式で保存する関数
-    """
-    images = []
-    labels = []
-    for i, l in enumerate(LABELS):
-        directory = HIRAGANA_DATA_DIR + l + '/'
-        files = os.listdir(directory)
-        label = np.zeros([NUM_LABELS])
-        label_index = LABELS.index(l)
-        label[label_index] = 1
-
-        for file in files:
-            try:
-                img = Image.open(directory + file)
-            except:
-                print("Skip a corruputed file: ", file)
-                continue
-            img = img.resize(IMAGE_PIXCELS)
-
-            # 元の画像のピクセル・ラベル追加
-            pixels = np.array(img.getdata())
-            images.append(pixels/255.0)
-            labels.append(label)
-
-            if data_argumentation:
-                # 元の画像を+15度回転
-                rotate_img = img.rotate(15)
-                pixels = np.array(rotate_img.getdata())
-                images.append(pixels/255.0)
-                labels.append(label)
-
-                # 元の画像を-15度回転
-                m_rotate_img = img.rotate(-15)
-                pixels = np.array(m_rotate_img.getdata())
-                images.append(pixels/255.0)
-                labels.append(label)
-
-                # 文字色をはっきりと
-                img2 = img.point(lambda x: x * 5.0)
-                pixels = np.array(img2.getdata())
-                images.append(pixels/255.0)
-                labels.append(label)
-
-                # 文字色を薄くする
-                img3 = img.point(lambda x: x * 0.5)
-                pixels = np.array(img3.getdata())
-                images.append(pixels/255.0)
-                labels.append(label)
-
-    np.savez(DATA_DIR + "/np_hiragana.npz", image=images, label=labels)
-
-def setup_dir():
-    """
-    DATA_DIR/hiragana_imagesディレクトリが作成されていない場合に作成する関数
-    """
-
-    if not 'hiragana_images' in os.listdir(DATA_DIR):
-        dirname = DATA_DIR + '/hiragana_images'
-        os.mkdir(dirname)
-        print('Create ' + dirname)
-
-def main():
-    if FLAGS.process == 'create_hiragana_image':
-        setup_dir()
-        create_hiragana_image()
-    elif FLAGS.process == 'create_npz':
-        setup_dir()
-        create_npz()
-    else:
-        print('create_hiragana_image または create_npz を入力する必要があります。')
-        sys.exit(-1)
-
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        '--process',
-        type=str,
-        default=None,
-        help='実行する処理を選択します。[create_hiragana_image, create_npz]'
-    )
-
-    FLAGS, unparsed = parser.parse_known_args()
-    main()
+read_hiragana()
