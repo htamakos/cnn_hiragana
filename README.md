@@ -91,7 +91,10 @@ $ pip install tensorflow
 ## Usage
 
 ```
-$ cd src
+$ cd data
+$ wget http://etlcdb.db.aist.go.jp/etlcdb/data/ETL8G.zip
+$ unzip ETL8G.zip
+$ cd ../src
 $ python input_data.py
 $ sh build.sh
 ```
