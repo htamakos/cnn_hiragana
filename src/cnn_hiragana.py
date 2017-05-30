@@ -27,12 +27,11 @@ LABELS = ['0x2422', '0x2424', '0x2426', '0x2428', '0x242a', '0x242b',
           '0x2468', '0x2469', '0x246a', '0x246b', '0x246c', '0x246d',
           '0x246f', '0x2472', '0x2473']
 NPZ = 'hiragana.npz'
-IMAGE_SIZE = 28
+IMAGE_SIZE = 64
 LABEL_NUM = 75
 
-DECAY_RATE = 0.96
-DECAY_RATE_KP = 0.8
-DECAY_STEPS = 5000
+DECAY_RATE = 0.1
+DECAY_STEPS = 20
 
 def prepare_data():
     dataset = np.load(NPZ)
@@ -74,8 +73,8 @@ def print_stdout(s):
     sys.stdout.flush()
 
 def train():
-    def feed_dict(_x, _y, _data_type):
-        return { x: _x, y_: _y, data_type: _data_type }
+    def feed_dict(_x, _y, _keep_prob):
+        return { x: _x, y_: _y, keep_prob: _keep_prob }
 
     train_images, test_images, train_labels, test_labels = prepare_data()
     etl8g_dataset = etl8g.Dataset(train_images, train_labels)
@@ -88,17 +87,10 @@ def train():
 
         global_step = tf.Variable(0, trainable=False)
 
-        if FLAGS.optimizer == 'AdamOptimizer':
-            learning_rate = tf.train.exponential_decay(FLAGS.learning_rate, global_step, DECAY_STEPS, DECAY_RATE, staircase=True)
-        elif FLAGS.optimizer in 'AdagradOptimizer':
-            learning_rate = tf.constant(0.01)
-        elif FLAGS.optimizer == 'AdadeltaOptimizer':
-            learning_rate = tf.constant(0.001)
+        learning_rate = tf.train.exponential_decay(FLAGS.learning_rate, global_step, DECAY_STEPS, DECAY_RATE, staircase=True)
+        keep_prob = tf.placeholder(tf.float32)
 
-        keep_prob = tf.train.exponential_decay(FLAGS.train_keep_prob, global_step, DECAY_STEPS, DECAY_RATE_KP, staircase=True)
-        data_type = tf.placeholder(tf.int32)
-
-        logits = etl8g.inference(x_image, data_type, keep_prob, FLAGS.bn)
+        logits = etl8g.inference(x_image, keep_prob)
 
         tf.summary.scalar('learning_rate', learning_rate)
         tf.summary.scalar('keep_prob', keep_prob)
@@ -118,62 +110,69 @@ def train():
             train_writer = tf.summary.FileWriter(FLAGS.log_dir + '/train', sess.graph)
             test_writer = tf.summary.FileWriter(FLAGS.log_dir + '/test', sess.graph)
             sess.run(init)
-
-            accracies = []
             batch_counter = 0
 
             start_time = time.time()
 
             print_stdout(("train_data_num %d, test_data_num %d batch_size %d max_epoch %d " + \
                          "start_learning_rate %0.5f optimizer %s train_keep_prob %0.5f " + \
-                         "batch normalization %r") % \
+                         "batch normalization %s") % \
                          (train_images.shape[0], test_images.shape[0], FLAGS.batch_num, FLAGS.max_epoch,
                           FLAGS.learning_rate, FLAGS.optimizer, FLAGS.train_keep_prob, FLAGS.bn))
 
             epoc_count = 0
 
-            while epoc_count <=  FLAGS.max_epoch:
-                batch_x, batch_y = etl8g_dataset.next_batch(FLAGS.batch_num)
+            for epoch in range(FLAGS.max_epoch):
+                total_batch = train_images.shape[0] // FLAGS.batch_num
+                true_count = []
+                costs = []
 
-                sess.run(train_step, feed_dict=feed_dict(batch_x, batch_y, 1))
-                epoch = etl8g_dataset.epochs_completed
+                for i in range(total_batch):
+                    batch_x, batch_y = etl8g_dataset.next_batch(FLAGS.batch_num)
+                    print(global_step)
 
-                if epoc_count != epoch:
-                    duration = time.time() - start_time
+                    sess.run(train_step, feed_dict=feed_dict(batch_x, batch_y, FLAGS.train_keep_prob))
 
-                    train_accuracy = accuracy.eval(feed_dict=feed_dict(batch_x, batch_y, 0))
-                    accracies.append(train_accuracy)
-                    print_stdout("epoch %d, num_example %d, training accuracy %.03f (%.03f sec)" % \
-                                 (epoch, batch_x.shape[0], train_accuracy, duration))
+                duration = time.time() - start_time
 
-                    summary, _ = sess.run([merged, train_step], feed_dict=feed_dict(batch_x, batch_y, 1))
-                    train_writer.add_summary(summary, epoch)
+                perm = np.random.choice(train_images.shape[0], 100)
+                validation_images = train_images[perm]
+                validation_labels = train_labels[perm]
 
-                    test_feed_dict = feed_dict(test_images, test_labels, 0)
-                    test_accuracy = accuracy.eval(feed_dict=test_feed_dict)
-                    test_summary = sess.run(merged, feed_dict=test_feed_dict)
+                train_accuracy = accuracy.eval(feed_dict=feed_dict(validation_images, validation_labels, 1.0))
+                print_stdout("epoch %d, num_example %d, training accuracy %.03f (%.03f sec)" % \
+                             (epoch, validation_images.shape[0], train_accuracy, duration))
 
-                    test_writer.add_summary(test_summary, epoch)
-                    print_stdout("num_example %d, test accuracy %.03f" % (test_images.shape[0], test_accuracy))
-                    epoc_count += 1
+                summary, _ = sess.run([merged, train_step], feed_dict=feed_dict(validation_images, validation_labels, 1.0))
+                train_writer.add_summary(summary, epoch)
+                perm2 = np.random.choice(test_images.shape[0], 100)
+                sample_test_images = test_images[perm2]
+                sample_test_labels = test_labels[perm2]
+
+                test_feed_dict = feed_dict(sample_test_images, sample_test_labels, 1.0)
+                test_accuracy = accuracy.eval(feed_dict=test_feed_dict)
+                test_summary = sess.run(merged, feed_dict=test_feed_dict)
+
+                test_writer.add_summary(test_summary, epoch)
+                print_stdout("num_example %d, test accuracy %.03f" % (sample_test_images.shape[0], test_accuracy))
 
             duration = time.time() - start_time
 
-            print_stdout("num_example %d, test accuracy %.03f (%.03f sec)" % (test_images.shape[0], accuracy.eval(
-                         feed_dict(test_images, test_labels, 0)), duration))
+            test_feed_dict = feed_dict(test_images[perm], test_labels, 1.0)
+            test_accuracy = accuracy.eval(feed_dict=test_feed_dict)
 
-            print_stdout("epoch %d, train_data_size %d, test_data_size %d batch_size %d max_step %d" % \
-                         (etl8g_dataset.epochs_completed, train_images.shape[0], test_images.shape[0],
-                          FLAGS.batch_num, FLAGS.batch_size))
+            print_stdout("num_example %d, test accuracy %.03f (%.03f sec)" % (test_images.shape[0], accuracy.eval(
+                         feed_dict(test_images, test_labels, 1.0)), duration))
+
 
 def main(_):
     train()
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--max_epoch', type=int, default=400,
+    parser.add_argument('--max_epoch', type=int, default=40,
                         help='Number of steps to run trainer.')
-    parser.add_argument('--batch_num', type=int, default=50,
+    parser.add_argument('--batch_num', type=int, default=16,
                         help='Number of steps to run trainer.')
     parser.add_argument('--learning_rate', type=float, default=1e-4,
                         help='Initial learning rate')
@@ -185,7 +184,7 @@ if __name__ == '__main__':
                         help='Keep rate in Dropout layer')
     parser.add_argument('--optimizer', type=str, default='AdamOptimizer',
                         help='Loss Optimizer in DeepLearning')
-    parser.add_argument('--bn', type=bool, default=True,
+    parser.add_argument('--bn', type=str, default='true',
                         help='Batch Normalization')
     parser.add_argument('--data_argument', type=str, default='false',
                         help='Data Argumentation')

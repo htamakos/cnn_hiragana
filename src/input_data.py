@@ -57,9 +57,9 @@ LABELS = ['0x2422', '0x2424', '0x2426', '0x2428', '0x242a', '0x242b',
 NUM_DATASET = 4780
 
 HIRAGANA_DATA_DIR = DATA_DIR + '/hiragana_images/'
-NPZ = '../data/ETL8G/np_hiragana.npz'
+NPZ = '../data/ETL8G/np_hiragana_32.npz'
 NUM_LABELS = len(LABELS)
-IMAGE_SIZE = 28
+IMAGE_SIZE = 32
 IMAGE_PIXCELS = [IMAGE_SIZE, IMAGE_SIZE]
 
 def read_record_ETL8G(f):
@@ -104,6 +104,6 @@ def read_hiragana():
                     label[label_index] = 1
                     labels.append(label)
 
-    np.savez('hiragana.npz', image=images, label=labels)
+    np.savez('np_hiragana_32.npz', image=images, label=labels)
 
 read_hiragana()
