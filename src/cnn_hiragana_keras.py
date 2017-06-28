@@ -16,6 +16,8 @@ from tensorflow.contrib.keras.python.keras import initializers
 from tensorflow.contrib.keras.python.keras import callbacks
 from tensorflow.contrib.keras.python.keras.preprocessing.image import ImageDataGenerator
 
+from maxout import MaxoutDense
+
 LABELS = ['0x2422', '0x2424', '0x2426', '0x2428', '0x242a', '0x242b',
           '0x242c', '0x242d', '0x242e', '0x242f', '0x2430', '0x2431',
           '0x2432', '0x2433', '0x2434', '0x2435', '0x2436', '0x2437',
@@ -83,7 +85,7 @@ def mk_model():
     model.add(Convolution2D(filters=32, kernel_size=(3, 3), strides=(1, 1),
                             input_shape=(IMAGE_SIZE, IMAGE_SIZE, 1),
                             kernel_initializer=kernel_initializer()))
-    model.add(Activation('relu'))
+    model.add(LeakyReLU(alpha=.1))
     model.add(Convolution2D(filters=32, kernel_size=(3, 3), strides=(1, 1),
                             kernel_initializer=kernel_initializer()))
     model.add(Activation('relu'))
@@ -91,14 +93,14 @@ def mk_model():
     model.add(Dropout(0.5))
 
     model.add(Convolution2D(filters=64, kernel_size=(3, 3), kernel_initializer=kernel_initializer()))
-    model.add(Activation('relu'))
+    model.add(LeakyReLU(alpha=0.1))
     model.add(Convolution2D(filters=64, kernel_size=(3, 3), kernel_initializer=kernel_initializer()))
-    model.add(Activation('relu'))
+    model.add(LeakyReLU(alpha=0.1))
     model.add(MaxPooling2D(pool_size=(2, 2)))
     model.add(Dropout(0.5))
 
     model.add(Flatten())
-    model.add(Dense(256, kernel_initializer='he_uniform'))
+    model.add(MaxoutDense(output_dim=256, nb_feature=4))
     model.add(Activation('relu'))
     model.add(Dropout(0.5))
     model.add(Dense(LABEL_NUM, kernel_initializer='he_uniform'))
@@ -108,23 +110,35 @@ def mk_model():
 
 def mk_model_with_bn():
     model = Sequential()
-    model.add(Convolution2D(filters=32, kernel_size=(3, 3), strides=(1, 1),
+    model.add(Convolution2D(filters=64, kernel_size=(3, 3), strides=(1, 1),
                             input_shape=(IMAGE_SIZE, IMAGE_SIZE, 1),
                             kernel_initializer=kernel_initializer()))
     model.add(BatchNormalization())
     model.add(Activation('relu'))
-    model.add(Convolution2D(filters=32, kernel_size=(3, 3), strides=(1, 1),
+
+    model.add(Convolution2D(filters=64, kernel_size=(3, 3), strides=(1, 1),
                             kernel_initializer=kernel_initializer()))
     model.add(BatchNormalization())
     model.add(Activation('relu'))
     model.add(MaxPooling2D(pool_size=(2, 2)))
     model.add(Dropout(0.5))
 
-    model.add(Convolution2D(filters=64, kernel_size=(3, 3),
+    model.add(Convolution2D(filters=128, kernel_size=(3, 3),
                             kernel_initializer=kernel_initializer()))
     model.add(BatchNormalization())
     model.add(Activation('relu'))
-    model.add(Convolution2D(filters=64, kernel_size=(3, 3),
+    model.add(Convolution2D(filters=128, kernel_size=(3, 3),
+                            kernel_initializer=kernel_initializer()))
+    model.add(BatchNormalization())
+    model.add(Activation('relu'))
+    model.add(MaxPooling2D(pool_size=(2, 2)))
+    model.add(Dropout(0.5))
+
+    model.add(Convolution2D(filters=256, kernel_size=(3, 3),
+                            kernel_initializer=kernel_initializer()))
+    model.add(BatchNormalization())
+    model.add(Activation('relu'))
+    model.add(Convolution2D(filters=256, kernel_size=(3, 3),
                             kernel_initializer=kernel_initializer()))
     model.add(BatchNormalization())
     model.add(Activation('relu'))
@@ -144,13 +158,11 @@ def mk_model_with_bn():
 if __name__ == '__main__':
     batch_size = 16
     nb_epoch = 400
-    lr_start = 0.001
-    lr_stop = 0.0001
-    learning_rates = np.linspace(lr_start, lr_stop, nb_epoch)
 
-    optimizer = 'adadelta'
+    optimizer = 'adam'
     log_dir = './keras_logs/simple11'
     old_session = K.get_session()
+
     X_train, y_train, X_test, y_test = load_data()
     datagen = ImageDataGenerator(rotation_range=15, zoom_range=0.20)
     datagen.fit(X_train)
@@ -160,13 +172,10 @@ if __name__ == '__main__':
         K.set_session(session)
         K.set_learning_phase(1)
 
-        tb_cb = callbacks.TensorBoard(log_dir=log_dir, histogram_freq=1)
-        es_cb = callbacks.EarlyStopping(monitor='val_loss', patience=40, verbose=0, mode='auto')
+        es_cb = callbacks.EarlyStopping(monitor='val_loss', patience=200, verbose=0, mode='auto')
         lr_cb = callbacks.LearningRateScheduler(lambda epoch: float(learning_rates[epoch]))
 
-        #model = simple_model()
-        model = mk_model()
-        #model = mk_model_with_bn()
+        model = mk_model_with_bn()
         model.summary()
 
         model.compile(loss='categorical_crossentropy',
